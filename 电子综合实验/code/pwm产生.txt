@@ -1,0 +1,24 @@
+sbit PWM = P1^0;		//PWM输出（接LED）
+
+//定义PWM最大级数，也就是调节LED的亮度等级
+#define PWM_MAX	16
+//定义PWM级数，分为0～PWM_MAX-1级
+unsigned char PwmValue;    //熄灭0  微亮5  高亮15
+
+
+//中断中定义变量
+static unsigned char t = 0;
+
+//脉宽调制
+	t++;	//注意t的定义方式
+	if ( t >= PWM_MAX ) t = 0;	//PWM波的周期为：PWM_MAX*1ms = 16ms
+	if ( t < PwmValue )
+	{
+		PWM = 0;		//PWM波低电平时间(LED亮)：PwmValue*1ms
+	}
+	else
+	{
+		PWM = 1;		//PWM波高电平时间(LED灭)：（PWM_MAX-PwmValue）*1ms
+	}
+
+//若都是变量，等比例缩小可以解决PWM_MAX、PwmValue 过大的问题

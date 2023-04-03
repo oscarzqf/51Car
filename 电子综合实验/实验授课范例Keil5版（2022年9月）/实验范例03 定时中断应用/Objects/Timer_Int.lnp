@@ -1,0 +1,3 @@
+".\Objects\main_timer.obj" 
+TO ".\Objects\Timer_Int" 
+PRINT(".\Listings\Timer_Int.m51") RAMSIZE(256) 

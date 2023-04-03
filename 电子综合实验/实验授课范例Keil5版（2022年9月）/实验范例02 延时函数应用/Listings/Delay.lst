@@ -1,0 +1,91 @@
+C51 COMPILER V9.56.0.0   DELAY                                                             08/03/2022 15:05:29 PAGE 1   
+
+
+C51 COMPILER V9.56.0.0, COMPILATION OF MODULE DELAY
+OBJECT MODULE PLACED IN .\Objects\Delay.obj
+COMPILER INVOKED BY: D:\MDK_v525\C51\BIN\C51.EXE Delay.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings\De
+                    -lay.lst) TABS(2) OBJECT(.\Objects\Delay.obj)
+
+line level    source
+
+   1          /*
+   2            功能：LED闪烁（周期1秒），蜂鸣器操作类似。
+   3            1、利用软件计数方式得1ms延时效果
+   4            2、利用定时查询方式得1ms延时效果
+   5            跳线连接：实验板上JP2的“流水灯”跳线短接
+   6            编制：电子科技大学实验中心2022年6月
+   7          */
+   8          
+   9          
+  10          #include <reg52.h>  // 包含8051的SFR寄存器定义头文件
+  11          
+  12          //实验板上D1到D8有8个发光二极管，分别对应IO口P1^0到P1^7
+  13          //跳线连接：智能小车实验板上JP2的“流水灯”跳线短接
+  14          
+  15          sbit LED1 = P1^0;     //定义LED由P1.0控制
+  16          sbit BUZZER = P2^3;   //定义BUZZER由P2.3控制
+  17          /*
+  18          函数：Delayms_1()
+  19          功能：延时
+  20          说明：
+  21            晶振频率为11.0592MHz
+  22            延时长度 = 1ms * t
+  23          */
+  24          void Delayms_1(unsigned int t)    //经常使用该函数做延时函数
+  25          {
+  26   1        unsigned int us_ct;
+  27   1        for (;t > 0;t --)   //执行代码消耗CPU时间
+  28   1          for (us_ct = 113;us_ct > 0;us_ct --); 
+  29   1      }
+  30          
+  31          /*
+  32          函数：Delayms_2()
+  33          功能：延时
+  34          说明：
+  35            借助该实验理解定时器的使用方法，为下一个定时中断做铺垫
+  36            晶振频率为11.0592MHz,延时长度 = 1ms * t
+  37            定时1ms的定时器初值=65536-0.001/(1/(f/12))=64614=0xFC66，其中f为晶振频率(Hz)
+  38          */
+  39          void Delayms_2(unsigned int t)    //理解为主，为下一个定时中断做铺垫
+  40          {
+  41   1        do
+  42   1        {
+  43   2          TH0 = 0xFC;   //设置定时器初值高字节（对应0.001s）
+  44   2          TL0 = 0x66;   //设置定时器初值低字节（对应0.001s）
+  45   2          TR0 = 1;      //启动定时器
+  46   2          while ( !TF0 ); //等待定时器溢出TF0为T0的溢出标志
+  47   2          TR0 = 0;      //停止定时器
+  48   2          TF0 = 0;      //清除溢出标志
+  49   2        } while ( --t != 0 ); //循环t次
+  50   1      }
+  51          //主函数//
+  52          void main()
+  53          {
+  54   1        TMOD = 0x01;  //将定时器T0设置为方式1，即16位定时器
+C51 COMPILER V9.56.0.0   DELAY                                                             08/03/2022 15:05:29 PAGE 2   
+
+  55   1        while(1)
+  56   1        { 
+  57   2          LED1 = 0;         //点亮LED（低电平点亮）
+  58   2          BUZZER = 0;       //蜂鸣器响（低电平有效）
+  59   2          Delayms_1(100);   //延时100ms
+  60   2      
+  61   2          LED1 = 1;         //熄灭
+  62   2          BUZZER = 1;       //蜂鸣器停
+  63   2          Delayms_2(900);   //延时900ms
+  64   2        }
+  65   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     82    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,3 @@
+".\Objects\StdIO.obj" 
+TO ".\Objects\Input_and_Output" 
+PRINT(".\Listings\Input_and_Output.m51") RAMSIZE(256) 

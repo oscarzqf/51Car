@@ -1,0 +1,290 @@
+C51 COMPILER V9.56.0.0   MAIN_RANGING                                                      09/29/2022 16:37:03 PAGE 1   
+
+
+C51 COMPILER V9.56.0.0, COMPILATION OF MODULE MAIN_RANGING
+OBJECT MODULE PLACED IN .\Objects\main_ranging.obj
+COMPILER INVOKED BY: D:\MDK_v525\C51\BIN\C51.EXE main_ranging.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\List
+                    -ings\main_ranging.lst) TABS(2) OBJECT(.\Objects\main_ranging.obj)
+
+line level    source
+
+   1          /*
+   2            功能：超声波测距实验。
+   3            功能模块：HC-SR04，测距范围：2cm to 450cm
+   4            数码管显示：xxx.x，单位：cm
+   5            计算公式如下：
+   6            s = v*t/2 = (340m/s)*t(s)/2 = (340um/us)*t(us)/2 = (0.34mm/us)*t(us)/2 = (0.034cm/us)*t(us)/2;;
+   7            s(cm) = t(us)*0.017(cm/us).
+   8            t is the received Echo high level time from the UltracsonicModule HC-SR04, 
+   9            it messured by T0 timer, t=(12/11.0592)us*(TH0,TL0), initial (TH0,TL0)=0x00 00
+  10            s(cm) =0.0184*(TH0,TL0),  (TH0,TL0)max = 24456 for s =450cm
+  11            UltracsonicModule HC-SR04 VCC(+5V) connect to VCC; 
+  12            Gnd connct to GND; 
+  13            Trig connect to P3.3; 
+  14            Echo connect to P3.2.
+  15            超声波测距范例
+  16            数码管显示测距次数（小于255次，超出从0继续计数）和测距结果（单位：cm）
+  17            编制：电子科技大学实验中心2022年6月
+  18          */
+  19          
+  20          
+  21          #include <reg52.h>
+  22          
+  23          //定义驱动引脚
+  24          sbit Echo = P3^2; //Echo
+  25          sbit Trig = P3^3; //Trig
+  26          
+  27          #define LED_seg P0      //8位数码管的段码和位码驱动通过P0端口锁存 
+  28          #define LED_dig P0
+  29          
+  30          //定义显示缓冲区（由定时中断程序自动扫描）
+  31          unsigned char DispBuf[8];
+  32          
+  33          //智能小车数码管显示电路管脚定义
+  34          sbit SS = P2^6;    //数码管段选信号
+  35          sbit CS = P2^7;    //数码管位选信号
+  36          
+  37          
+  38          bit Counter_overflag = 0;   //T0定时器溢出标志
+  39          bit Echo_Over = 0;          //超声波测距完成标志，无论收到回波或没有收到，总要置位一次
+  40          unsigned char cnt = 0;      //测量次数，每次加一
+  41          unsigned int Range = 0;
+  42          unsigned long Echo_time = 0;    //T0定时器合并数值
+  43          
+  44          code unsigned char Tab[] =
+  45            {//定义0123456789AbCdEF的数码管字型数据，其他显示字符需自行计算，如‘-’的字形数据为0x40
+  46              0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7D,0x07,
+  47              0x7F,0x6F,0x77,0x7C,0x39,0x5E,0x79,0x71
+  48            };
+  49          //============================//
+  50          /*
+  51          函数：EX0INTSVC()
+  52          功能：外部中断0中断服务程序
+  53          用途：为避免定时中断干扰测距的准确性，采用外部中断触发后立即停止计时
+  54                外部中断0优先级高于定时中断，程序尽量短，避免过多干扰定时中断
+C51 COMPILER V9.56.0.0   MAIN_RANGING                                                      09/29/2022 16:37:03 PAGE 2   
+
+  55          */
+  56          void EX0INTSVC() interrupt 0
+  57          {
+  58   1        TR0 = 0;          //停止计时
+  59   1        Echo_time = TH0 * 256 + TL0;  //读取定时器0计数值
+  60   1        TH0 = 0;          //清除定时器0计数寄存器，为下次计数做准备
+  61   1        TL0 = 0;
+  62   1        Echo_Over = 1;    //表示本次超声波测距完成，可以启动下次的测量
+  63   1        EX0 = 0;          //关闭外部中断，否则会马上引起下一次中断
+  64   1      }
+  65          //============================//
+  66          /*
+  67          函数：T0INTSVC()
+  68          功能：定时器T0的中断服务函数
+  69          用途：若超过测距范围，长时间无法收到回波，
+  70                已经启动的T0中断会计数溢出，利用定时器溢出标志来判断
+  71          */
+  72          void T0INTSVC() interrupt 1      
+  73          {
+  74   1        TR0 = 0;        //停止计时
+  75   1        Counter_overflag = 1;      //中断溢出标志，未收到回波
+  76   1        Echo_Over = 1;  //表示本次超声波测距完成，可以启动下次的测量
+  77   1        EX0 = 0;        //关闭外部中断
+  78   1      }
+  79          /*
+  80          函数：T1INTSVC()
+  81          功能：定时器T1的中断服务函数
+  82          */
+  83          void T1INTSVC() interrupt 3 //定时器1的中断号为：3
+  84          {
+  85   1        code unsigned char com[] = {0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01}; //显示位的端口控制字节
+  86   1        static unsigned char n = 0;           //n: 扫描显示位计数,0-7
+  87   1      
+  88   1      //================数码管定时扫描驱动显示=============== 
+  89   1        TR1 = 0;
+  90   1        TH1 = 0xFC;
+  91   1        TL1 = 0x66;           //可以将FC66换成0000，降低扫描速度，观察和理解动态扫描
+  92   1        TR1 = 1;
+  93   1        P0 = 0xFF;    //消隐
+  94   1        CS = 1;
+  95   1        CS = 0;
+  96   1        P0 = DispBuf[n];  //更新扫描显示数据
+  97   1        SS = 1;
+  98   1        SS = 0;
+  99   1        P0 = ~com[n]; //重新显示
+ 100   1        CS = 1;
+ 101   1        CS = 0;
+ 102   1        n++;            //指向下一位扫描显示
+ 103   1        n &= 0x07;
+ 104   1      //====================================================
+ 105   1      
+ 106   1      }
+ 107          
+ 108          
+ 109          /*
+ 110          函数：DispClear()
+ 111          功能：清除数码管的所有显示
+ 112          */
+ 113          void DispClear()
+ 114          {
+ 115   1        unsigned char i;
+ 116   1        for ( i=0; i<8; i++ )
+C51 COMPILER V9.56.0.0   MAIN_RANGING                                                      09/29/2022 16:37:03 PAGE 3   
+
+ 117   1        {
+ 118   2          DispBuf[i] = 0x00;  //i值代表数码管的位数，可以在后面的程序观察是左起还是右起，0x00可以关闭数码管显示
+ 119   2        }
+ 120   1      }
+ 121          
+ 122          /*
+ 123          函数：Delay()
+ 124          功能：延时
+ 125          说明：
+ 126            晶振频率为11.0592MHz
+ 127            延时长度 = 1ms * t
+ 128          */
+ 129          void Delay(unsigned int t)
+ 130          {
+ 131   1        unsigned int us_ct;
+ 132   1        for (;t > 0;t --)   //执行代码消耗CPU时间
+ 133   1          for (us_ct = 113;us_ct > 0;us_ct --); 
+ 134   1      }
+ 135          
+ 136          
+ 137          /*
+ 138          函数：SysInit()
+ 139          功能：系统初始化
+ 140          */
+ 141          void SysInit()
+ 142          {
+ 143   1      
+ 144   1        DispClear();  //初始化显示缓存
+ 145   1        TMOD = 0x11;  //设置定时器T0为16位定时器，定时器T1为16位定时器
+ 146   1        EA = 0;       //关闭总中断，待初始化结束后再打开
+ 147   1      //======定时计数器T0初始化，用于获取超声波作用时间，若定时溢出，则超出测距范围
+ 148   1        TH0 = 0;    
+ 149   1        TL0 = 0;
+ 150   1        ET0 = 1;
+ 151   1      //======定时计数器T1初始化，用于获取1ms定时中断=====
+ 152   1        TH1 = 0xFC;   //设置定时器1的初值: 0xFC66，对应定时时间1ms
+ 153   1        TL1 = 0x66;
+ 154   1        ET1 = 1;      //使能定时器T1中断
+ 155   1        TR1 = 1;      //启动定时器T1
+ 156   1      //======定时计数器T0和T1初始化完毕================= 
+ 157   1        EX0 = 0;      //关闭外部中断
+ 158   1        IT0 = 0;      //外部中断0采用电平触发模式，低电平出发
+ 159   1        EA = 1;       //使能总中断
+ 160   1      }
+ 161          
+ 162          /*
+ 163          函数：StartModule()
+ 164          功能：启动模块，采用 IO 触发测距，给至少10us 的高电平信号;
+ 165          */
+ 166          void  StartModule()
+ 167          {
+ 168   1        unsigned char i;
+ 169   1        Trig = 1;                       //启动一次模块
+ 170   1        for(i = 0;i < 10;i ++);         //超声波启动延迟10us以上;
+ 171   1        Trig = 0;
+ 172   1      }
+ 173          /*
+ 174          函数：Range_Display()
+ 175          功能：超声波距离显示函数
+ 176          说明：若超出距离则显示“- - - -”
+ 177          */
+ 178           void Range_Display()
+C51 COMPILER V9.56.0.0   MAIN_RANGING                                                      09/29/2022 16:37:03 PAGE 4   
+
+ 179          {
+ 180   1        cnt ++;   //每测距一次，数值加一，用于测试
+ 181   1        DispBuf[7] = Tab[cnt / 100]; 
+ 182   1        DispBuf[6] = Tab[cnt / 10 % 10];
+ 183   1        DispBuf[5] = Tab[cnt % 10];
+ 184   1        //超出测量范围或者障碍物太近反射角度太小导致无法收到回波，都显示“- - - -”
+ 185   1        if((Range >= 4000) || Counter_overflag == 1)
+ 186   1        {  
+ 187   2          Counter_overflag = 0;
+ 188   2          DispBuf[0] = 0x40;      
+ 189   2          DispBuf[1] = 0x40;
+ 190   2          DispBuf[2] = 0x40;        
+ 191   2          DispBuf[3] = 0x40;
+ 192   2        }
+ 193   1        //按照HC-SR04的指标，大致工作在2cm—450cm的范围内，与产品质量和反射面相关
+ 194   1        else    //显示数据单位：厘米
+ 195   1        {
+ 196   2          DispBuf[0] = Tab[Range % 10];     
+ 197   2          DispBuf[1] = Tab[Range / 10 % 10] + 0x80;
+ 198   2          DispBuf[2] = Tab[Range / 100 % 10];       
+ 199   2          DispBuf[3] = Tab[Range / 1000];
+ 200   2        }
+ 201   1      }
+ 202          /*
+ 203          函数：Timer_Count()
+ 204          功能：超声波高电平脉冲宽度计算函数
+ 205          备注：采用查询模式
+ 206          说明：超声波模块在等待回波的时候，经常被定时中断打断，导致回波到达时间测量不及时，干扰了超声波测量精度
+ 207          改进的办法是分别加入下面两条语句（暂时屏蔽，取消屏蔽可以用来对照）
+ 208            TR1 = 0;    //暂停定时器T1计数，相当于关闭定时中断T1
+ 209            TR1 = 1;    //重启定时器T1计数，相当于打开定时中断T1
+ 210          随之带来什么新的问题呢？分析产生的原因。
+ 211          */
+ 212          unsigned int  Timer_Count()   
+ 213          {
+ 214   1        
+ 215   1        unsigned long Range;
+ 216   1        TR0 = 1;      //开启计数
+ 217   1        EX0 = 1;      //开启外部中断
+ 218   1        while(!Echo_Over);  //等待回波，当Echo_Over为1，表明收到回波或超出测距范围
+ 219   1        
+ 220   1        Echo_Over = 0;      //清除Echo_Over，准备下一次测距
+ 221   1        //程序到这里就已经得到了超声波的响应计数值，结果存在变量Echo_time内，Echo_time * 1.1us得到响应时间
+ 222   1        //假设环境温度26.5摄氏度，根据Echo_time的值自行计算测距的长度（单位：毫米）并替换下面的定值表达式
+ 223   1        //注意：必须用定点运算，精度为毫米！
+ 224   1        Range = 1234;     //单位是毫米
+ 225   1        
+ 226   1        return (unsigned int)Range;
+ 227   1      }
+ 228          void main()
+ 229          {
+ 230   1        
+ 231   1        SysInit();    //定时器初始化
+ 232   1        
+ 233   1        DispBuf[7] = Tab[1];      //在8位数码管上显示“12345678”字样
+ 234   1        DispBuf[6] = Tab[2];
+ 235   1        DispBuf[5] = Tab[3];
+ 236   1        DispBuf[4] = Tab[4];
+ 237   1        DispBuf[3] = Tab[5];
+ 238   1        DispBuf[2] = Tab[6];
+ 239   1        DispBuf[1] = Tab[7];
+ 240   1        DispBuf[0] = Tab[8];
+C51 COMPILER V9.56.0.0   MAIN_RANGING                                                      09/29/2022 16:37:03 PAGE 5   
+
+ 241   1        Delay(2000);          
+ 242   1        DispClear();        //清除显示（数码管上的显示内容全部熄灭
+ 243   1        DispBuf[7] = Tab[cnt / 100]; 
+ 244   1        DispBuf[6] = Tab[cnt / 10 % 10];
+ 245   1        DispBuf[5] = Tab[cnt % 10];
+ 246   1        while(1)
+ 247   1        {
+ 248   2          Echo = 1;           //IO口读入之前输出1
+ 249   2          StartModule();    //启动模块
+ 250   2          while(!Echo);
+ 251   2        
+ 252   2          Range = Timer_Count();    //超声波高电平脉冲宽度计算函数
+ 253   2          Range_Display();          //超声波距离显示
+ 254   2          Delay(200);             //每隔0.2秒读取一次并显示一次测量数据，便于视觉观察
+ 255   2        }
+ 256   1      
+ 257   1      }
+ 258          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    555    ----
+   CONSTANT SIZE    =     24    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     16       4
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      2    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

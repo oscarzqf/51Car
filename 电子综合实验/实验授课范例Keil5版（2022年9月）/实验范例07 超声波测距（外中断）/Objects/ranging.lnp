@@ -1,0 +1,3 @@
+".\Objects\main_ranging.obj" 
+TO ".\Objects\ranging" 
+PRINT(".\Listings\ranging.m51") RAMSIZE(256) 

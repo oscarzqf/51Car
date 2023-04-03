@@ -1,0 +1,15 @@
+
+LED灯
+sbit LED1 = P1^0;	 //定义LED由P1.0控制，第一个led灯
+sbit LED2 = P1^1;		//定义LED2由P1.1控制
+
+
+蜂鸣器
+sbit BUZZER = P2^3; //定义BUZZER由P2.3控制，
+
+
+四个独立按键
+sbit KEY1 = P3^4;	
+sbit KEY2 = P3^5;
+sbit KEY3 = P3^6;
+sbit KEY4 = P3^7;

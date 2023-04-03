@@ -1,0 +1,277 @@
+C51 COMPILER V9.56.0.0   MAIN_MOTOR                                                        09/28/2022 15:11:29 PAGE 1   
+
+
+C51 COMPILER V9.56.0.0, COMPILATION OF MODULE MAIN_MOTOR
+OBJECT MODULE PLACED IN .\Objects\main_motor.obj
+COMPILER INVOKED BY: D:\MDK_v525\C51\BIN\C51.EXE main_motor.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listin
+                    -gs\main_motor.lst) TABS(2) OBJECT(.\Objects\main_motor.obj)
+
+line level    source
+
+   1          /*
+   2            main.c
+   3            用PWM方波控制直流电机的速度。电机驱动接线及驱动逻辑控制参见"电机测试"例程。
+   4            本例程通过主板上K1~K4独立按键，调节PWM占空比，从而调节左右电机转速。
+   5          */
+   6          
+   7          #include <reg52.h>
+   8          
+   9          
+  10          //定义I/O接口
+  11          sbit PWM_IN1 = P1^4;  // 高电平1：左电机后退（反转）
+  12          sbit PWM_IN2 = P1^5;  // 高电平1：左电机前进（正转）
+  13          
+  14          sbit PWM_IN3 = P1^6;  // 高电平1：右电机前进（正转）  
+  15          sbit PWM_IN4 = P1^7;  // 高电平1：右电机后退（反转）
+  16          
+  17          sbit PWM_EN1 = P1^2;  // 高电平1：使能左电机 
+  18          sbit PWM_EN2 = P1^3;  // 高电平1：使能右电机
+  19          
+  20          sbit KEY1 = P3^4;   //定义按键K1，左'+'按键（控制左电机加速），对应核心板上K1
+  21          sbit KEY2 = P3^5;   //定义按键K2，左'-'按键（控制左电机减速），对应核心板上K2
+  22          sbit KEY3 = P3^6;   //定义按键K3，右'+'按键（控制左电机加速），对应核心板上K3
+  23          sbit KEY4 = P3^7;   //定义按键K4，右'+'按键（控制左电机减速），对应核心板上K4
+  24          
+  25          //定义PWM最大级数，也就是调节直流电机的速度等级
+  26          #define SPEED_MAX   20
+  27          
+  28          //定义PWM级数，分为0～SPEED_MAX-1级
+  29          unsigned char Speed_L;    //左电机转速调节（调节PWM的一个周期SPEED_MAX*1ms时间内，左电机正转时间：Speed_L*1m
+             -s）
+  30          unsigned char Speed_R;    //右电机转速调节（调节PWM的一个周期SPEED_MAX*1ms时间内，右电机正转时间：Speed_R*1m
+             -s）
+  31          
+  32          //定义显示缓冲区（由定时中断程序自动扫描）
+  33          unsigned char DispBuf[8];
+  34          
+  35          //智能小车数码管显示电路
+  36          sbit SS = P2^6;    //数码管段选信号
+  37          sbit CS = P2^7;    //数码管位选信号
+  38          
+  39          code unsigned char Tab[] =    //共阴极数码管的段码（字形）表
+  40            {//定义0123456789AbCdEF的数码管字型数据，其他显示字符需自行计算，如‘-’的字形数据为0x40
+  41              0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7D,0x07,
+  42              0x7F,0x6F,0x77,0x7C,0x39,0x5E,0x79,0x71,
+  43            };
+  44          
+  45          
+  46          unsigned char KeyScan();
+  47          void DispClear();
+  48          void DispInit();
+  49          void Delay(unsigned int t);
+  50          void SysInit();
+  51          
+  52          void main()
+C51 COMPILER V9.56.0.0   MAIN_MOTOR                                                        09/28/2022 15:11:29 PAGE 2   
+
+  53          {
+  54   1        unsigned char k;
+  55   1      
+  56   1        SysInit();
+  57   1      
+  58   1        DispBuf[7] = 0x40;      //-
+  59   1        DispBuf[6] = Tab[Speed_R / 10];
+  60   1        DispBuf[5] = Tab[Speed_R % 10];
+  61   1        DispBuf[4] = 0x40;      //-
+  62   1        DispBuf[3] = 0x40;      //-
+  63   1        DispBuf[2] = Tab[Speed_L / 10];
+  64   1        DispBuf[1] = Tab[Speed_L % 10];
+  65   1        DispBuf[0] = 0x40;      //-
+  66   1        PWM_EN1 = 1;
+  67   1        PWM_EN2 = 1;      //电机有效
+  68   1      
+  69   1        while(1)
+  70   1        {
+  71   2          Delay(50);      //延时50ms
+  72   2          k = KeyScan();    //键盘扫描
+  73   2          if ( k != '\0' ) 
+  74   2          {
+  75   3            switch ( k )  //处理按键
+  76   3            {
+  77   4            case 'A':
+  78   4              if ( Speed_L < SPEED_MAX-1 ) Speed_L ++;
+  79   4              break;
+  80   4            case 'B':
+  81   4              if ( Speed_L > 0 ) Speed_L --;
+  82   4              break;
+  83   4            case 'C':
+  84   4              if ( Speed_R < SPEED_MAX-1 ) Speed_R ++;
+  85   4              break;
+  86   4            case 'D':
+  87   4              if ( Speed_R > 0 ) Speed_R --;
+  88   4              break;
+  89   4            default:
+  90   4              break;
+  91   4            }
+  92   3      
+  93   3            DispBuf[6] = Tab[Speed_L / 10];
+  94   3            DispBuf[5] = Tab[Speed_L % 10];
+  95   3            DispBuf[2] = Tab[Speed_R / 10];
+  96   3            DispBuf[1] = Tab[Speed_R % 10];
+  97   3      
+  98   3            while( KeyScan() != '\0');    //等待松开按键
+  99   3          }
+ 100   2        }
+ 101   1      }
+ 102          
+ 103          
+ 104          /*
+ 105          函数：KeyScan()
+ 106          功能：键盘扫描
+ 107          返回：扫描到的键值
+ 108          */
+ 109          unsigned char KeyScan()
+ 110          {
+ 111   1        unsigned char k;
+ 112   1      
+ 113   1        k = '\0';
+ 114   1        if ( KEY1 == 0 ) k = 'A';   //k1 左'+'
+C51 COMPILER V9.56.0.0   MAIN_MOTOR                                                        09/28/2022 15:11:29 PAGE 3   
+
+ 115   1        if ( KEY2 == 0 ) k = 'B';   //k2 左'-'
+ 116   1        if ( KEY3 == 0 ) k = 'C';   //k3 右'+'
+ 117   1        if ( KEY4 == 0 ) k = 'D';   //k4 右'-'
+ 118   1      
+ 119   1        return k;
+ 120   1      }
+ 121          
+ 122          /*
+ 123          函数：DispClear()
+ 124          功能：清除数码管的所有显示
+ 125          */
+ 126          void DispClear()
+ 127          {
+ 128   1        unsigned char i;
+ 129   1        for ( i=0; i<8; i++ )
+ 130   1        {
+ 131   2          DispBuf[i] = 0x00;    //8位数码管显示全熄灭
+ 132   2        }
+ 133   1      }
+ 134          
+ 135          /*
+ 136          函数：DispInit()
+ 137          功能：数码管扫描显示初始化
+ 138          */
+ 139          void DispInit()
+ 140          {
+ 141   1        DispClear();  //初始为全灭
+ 142   1        EA = 0;
+ 143   1        TH1 = 0xFC;
+ 144   1        TL1 = 0x66;
+ 145   1        TR1 = 1;
+ 146   1        ET1 = 1;
+ 147   1        EA = 1;
+ 148   1      }
+ 149          
+ 150          /*
+ 151          函数：Delay()
+ 152          功能：延时
+ 153          说明：
+ 154            晶振频率为11.0592MHz
+ 155            延时长度 = 1ms * t
+ 156          */
+ 157          void Delay(unsigned int t)
+ 158          {
+ 159   1        unsigned int us_ct;
+ 160   1        for (;t > 0;t --)   //执行代码消耗CPU时间
+ 161   1          for (us_ct = 113;us_ct > 0;us_ct --); 
+ 162   1      }
+ 163          
+ 164          
+ 165          /*
+ 166          函数：SysInit()
+ 167          功能：系统初始化
+ 168          */
+ 169          void SysInit()
+ 170          {
+ 171   1        TMOD = 0x11;    //设置T1为16位定时器
+ 172   1      
+ 173   1        PWM_EN1 = 0;
+ 174   1        PWM_EN2 = 0;    //电机无效
+ 175   1        PWM_IN1 = 0;
+ 176   1        PWM_IN2 = 0;    //左电机的停转
+C51 COMPILER V9.56.0.0   MAIN_MOTOR                                                        09/28/2022 15:11:29 PAGE 4   
+
+ 177   1        PWM_IN3 = 0;
+ 178   1        PWM_IN4 = 0;    //右电机的停转
+ 179   1      
+ 180   1        Speed_L = 6;    //设置左电机PWM初值（初始转速）
+ 181   1        Speed_R = 6;    //设置右电机PWM初值
+ 182   1      
+ 183   1        DispInit();
+ 184   1      
+ 185   1      }
+ 186          
+ 187          /*
+ 188          函数：T1_INT_SVC()
+ 189          功能：定时器T1的中断服务函数，定时时间1ms
+ 190          */
+ 191          void T1INTSVC() interrupt 3
+ 192          {
+ 193   1        code unsigned char com[] = {0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01}; //显示位的端口控制字节
+ 194   1        static unsigned char n = 0; //n: 扫描显示位计数,0-7
+ 195   1        static unsigned char t = 0;
+ 196   1      
+ 197   1        TR1 = 0;
+ 198   1        TH1 = 0xFC;         //设置定时器初值0xfc66，对应1ms定时中断时间
+ 199   1        TL1 = 0x66;         //
+ 200   1        TR1 = 1;
+ 201   1      
+ 202   1        P0 = 0xFF;        //消隐（通过控制8位数码管的位控制端，即COM端，让其全不亮）
+ 203   1        CS = 1;
+ 204   1        CS = 0;
+ 205   1      
+ 206   1        P0 = DispBuf[n];  //更新扫描显示数据
+ 207   1        SS = 1;
+ 208   1        SS = 0;
+ 209   1      
+ 210   1        P0 = ~com[n];     //重新显示
+ 211   1        CS = 1;
+ 212   1        CS = 0;
+ 213   1      
+ 214   1        n++;            //指向下一位扫描显示
+ 215   1        n &= 0x07;
+ 216   1        
+ 217   1        t++;
+ 218   1        if ( t >= SPEED_MAX ) 
+ 219   1          t = 0;        //PWM波的周期为：SPEED_MAX*1ms = 20ms
+ 220   1      
+ 221   1        if ( t < Speed_L )    //PWM波高电平时间：(Speed_L)*1ms
+ 222   1        {
+ 223   2          PWM_IN1 = 0;
+ 224   2          PWM_IN2 = 1;    //左电机的正转
+ 225   2        }
+ 226   1        else          //PWM波低电平时间：（SPEED_MAX-Speed_L）*1ms
+ 227   1        {
+ 228   2          PWM_IN1 = 0;
+ 229   2          PWM_IN2 = 0;    //左电机的停转
+ 230   2        }
+ 231   1        
+ 232   1        if ( t < Speed_R )    //PWM波高电平时间：Speed_R*1ms
+ 233   1        {
+ 234   2          PWM_IN3 = 1;
+ 235   2          PWM_IN4 = 0;    //右电机的正转    
+ 236   2        }
+ 237   1        else          //PWM波低电平时间：（SPEED_MAX-Speed_R）*1ms
+ 238   1        {
+C51 COMPILER V9.56.0.0   MAIN_MOTOR                                                        09/28/2022 15:11:29 PAGE 5   
+
+ 239   2          PWM_IN3 = 0;
+ 240   2          PWM_IN4 = 0;    //右电机的停转  
+ 241   2        }
+ 242   1      }
+ 243          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    404    ----
+   CONSTANT SIZE    =     24    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     12    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

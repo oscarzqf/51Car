@@ -1,0 +1,22 @@
+1.将文件复制到工程下
+2.右击sourceGroup1，添加源文件PCF8591到工程
+3.#include "PCF8591.h"
+4.放在main中，开头其他变量定义之后
+//========adc启动必须条件========
+
+	unsigned char light;//定义AD测量值
+	RST_DS = 0; //关时钟DS1302
+	I2C_Init();
+  //================
+5.放在while（1）中
+//=========ADC================
+	PCF8591_SendByte(AddWr,0);
+	light = PCF8591_RcvByte(AddWr);  		
+	Pcf8591_DaConversion(AddWr,0, light); 
+      //这里第三句为DA，如果将light换成自定义变量，可以控制
+	//ad芯片旁边的led的亮度
+	//数码管显示
+	DispBuf[7]=Tab[light/100];
+	DispBuf[6]=Tab[light/10%10];
+	DispBuf[5]=Tab[light%10];
+//========================

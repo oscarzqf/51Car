@@ -1,0 +1,3 @@
+".\Objects\main_dpy.obj" 
+TO ".\Objects\dpy" 
+PRINT(".\Listings\dpy.m51") RAMSIZE(256) 

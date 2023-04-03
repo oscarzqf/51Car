@@ -1,0 +1,224 @@
+BL51 BANKED LINKER/LOCATER V6.22                                                        09/28/2022  11:02:30  PAGE 1
+
+
+BL51 BANKED LINKER/LOCATER V6.22, INVOKED BY:
+D:\MDK_V525\C51\BIN\BL51.EXE .\Objects\main_dpy.obj TO .\Objects\dpy PRINT (.\Listings\dpy.m51) RAMSIZE (256)
+
+
+MEMORY MODEL: SMALL
+
+
+INPUT MODULES INCLUDED:
+  .\Objects\main_dpy.obj (MAIN_DPY)
+  D:\MDK_V525\C51\LIB\C51S.LIB (?C_STARTUP)
+  D:\MDK_V525\C51\LIB\C51S.LIB (?C?UIDIV)
+  D:\MDK_V525\C51\LIB\C51S.LIB (?C_INIT)
+
+
+LINK MAP OF MODULE:  .\Objects\dpy (MAIN_DPY)
+
+
+            TYPE    BASE      LENGTH    RELOCATION   SEGMENT NAME
+            -----------------------------------------------------
+
+            * * * * * * *   D A T A   M E M O R Y   * * * * * * *
+            REG     0000H     0008H     ABSOLUTE     "REG BANK 0"
+            DATA    0008H     000CH     UNIT         ?DT?MAIN_DPY
+                    0014H     000CH                  *** GAP ***
+            BIT     0020H.0   0000H.1   UNIT         ?BI?MAIN_DPY
+                    0020H.1   0000H.7                *** GAP ***
+            IDATA   0021H     0001H     UNIT         ?STACK
+
+            * * * * * * *   C O D E   M E M O R Y   * * * * * * *
+            CODE    0000H     0003H     ABSOLUTE     
+            CODE    0003H     0018H     UNIT         ?CO?MAIN_DPY
+            CODE    001BH     0003H     ABSOLUTE     
+            CODE    001EH     00A4H     UNIT         ?PR?MAIN?MAIN_DPY
+            CODE    00C2H     0092H     UNIT         ?PR?T1INTSVC?MAIN_DPY
+            CODE    0154H     008CH     UNIT         ?C_C51STARTUP
+            CODE    01E0H     0055H     UNIT         ?C?LIB_CODE
+            CODE    0235H     001EH     UNIT         ?PR?_DELAYMS?MAIN_DPY
+            CODE    0253H     0015H     UNIT         ?PR?SYSINIT?MAIN_DPY
+            CODE    0268H     000DH     UNIT         ?C_INITSEG
+            CODE    0275H     000AH     UNIT         ?PR?DISPCLEAR?MAIN_DPY
+
+
+
+OVERLAY MAP OF MODULE:   .\Objects\dpy (MAIN_DPY)
+
+
+SEGMENT
+  +--> CALLED SEGMENT
+---------------------
+?PR?T1INTSVC?MAIN_DPY
+  +--> ?CO?MAIN_DPY
+
+*** NEW ROOT ***************************************************
+
+?C_C51STARTUP
+  +--> ?PR?MAIN?MAIN_DPY
+  +--> ?C_INITSEG
+
+BL51 BANKED LINKER/LOCATER V6.22                                                      09/28/2022  11:02:30  PAGE 2
+
+
+?PR?MAIN?MAIN_DPY
+  +--> ?PR?SYSINIT?MAIN_DPY
+  +--> ?CO?MAIN_DPY
+  +--> ?PR?_DELAYMS?MAIN_DPY
+  +--> ?PR?DISPCLEAR?MAIN_DPY
+
+?PR?SYSINIT?MAIN_DPY
+  +--> ?PR?DISPCLEAR?MAIN_DPY
+
+
+
+SYMBOL TABLE OF MODULE:  .\Objects\dpy (MAIN_DPY)
+
+  VALUE           TYPE          NAME
+  ----------------------------------
+
+  -------         MODULE        MAIN_DPY
+  C:0000H         SYMBOL        _ICE_DUMMY_
+  D:0080H         PUBLIC        P0
+  D:0090H         PUBLIC        P1
+  D:00A0H         PUBLIC        P2
+  D:00B0H         PUBLIC        P3
+  B:00A8H.7       PUBLIC        EA
+  D:00A8H         PUBLIC        IE
+  B:00A0H.7       PUBLIC        CS
+  C:0003H         PUBLIC        Tab
+  D:00B8H         PUBLIC        IP
+  B:00A0H.6       PUBLIC        SS
+  C:001EH         PUBLIC        main
+  D:000BH         PUBLIC        DispBuf
+  B:0020H.0       PUBLIC        timer_start_flag
+  D:0098H         PUBLIC        SCON
+  D:0089H         PUBLIC        TMOD
+  D:0088H         PUBLIC        TCON
+  D:0013H         PUBLIC        sec
+  B:00A8H.3       PUBLIC        ET1
+  D:008DH         PUBLIC        TH1
+  D:008BH         PUBLIC        TL1
+  C:0235H         PUBLIC        _Delayms
+  C:0253H         PUBLIC        SysInit
+  B:0088H.6       PUBLIC        TR1
+  C:00C2H         PUBLIC        T1INTSVC
+  D:00C8H         PUBLIC        T2CON
+  D:00D0H         PUBLIC        PSW
+  C:0275H         PUBLIC        DispClear
+  -------         PROC          T1INTSVC
+  -------         DO            
+  C:0013H         SYMBOL        com
+  D:0008H         SYMBOL        n
+  D:0009H         SYMBOL        counter_1ms
+  -------         ENDDO         
+  C:00C2H         LINE#         31
+  C:00D1H         LINE#         37
+  C:00D3H         LINE#         38
+  C:00D6H         LINE#         39
+  C:00D9H         LINE#         40
+  C:00DBH         LINE#         41
+BL51 BANKED LINKER/LOCATER V6.22                                                      09/28/2022  11:02:30  PAGE 3
+
+
+  C:00DEH         LINE#         42
+  C:00E0H         LINE#         43
+  C:00E2H         LINE#         44
+  C:00EAH         LINE#         45
+  C:00ECH         LINE#         46
+  C:00EEH         LINE#         47
+  C:00F7H         LINE#         48
+  C:00F9H         LINE#         49
+  C:00FBH         LINE#         50
+  C:00FDH         LINE#         51
+  C:0100H         LINE#         54
+  C:0103H         LINE#         55
+  C:0103H         LINE#         56
+  C:010BH         LINE#         57
+  C:0111H         LINE#         58
+  C:0111H         LINE#         59
+  C:0115H         LINE#         60
+  C:0117H         LINE#         62
+  C:0125H         LINE#         63
+  C:0136H         LINE#         64
+  C:013FH         LINE#         66
+  C:0144H         LINE#         67
+  C:0147H         LINE#         68
+  C:0147H         LINE#         69
+  C:0147H         LINE#         72
+  -------         ENDPROC       T1INTSVC
+  -------         PROC          DISPCLEAR
+  -------         DO            
+  D:0007H         SYMBOL        i
+  -------         ENDDO         
+  C:0275H         LINE#         79
+  C:0275H         LINE#         80
+  C:0275H         LINE#         82
+  C:0275H         LINE#         83
+  C:0275H         LINE#         84
+  C:027EH         LINE#         85
+  C:027EH         LINE#         86
+  -------         ENDPROC       DISPCLEAR
+  -------         PROC          _DELAYMS
+  D:0006H         SYMBOL        t
+  -------         DO            
+  D:0004H         SYMBOL        us_ct
+  -------         ENDDO         
+  C:0235H         LINE#         95
+  C:0235H         LINE#         96
+  C:0235H         LINE#         98
+  C:023EH         LINE#         99
+  C:0252H         LINE#         100
+  -------         ENDPROC       _DELAYMS
+  -------         PROC          SYSINIT
+  C:0253H         LINE#         107
+  C:0253H         LINE#         108
+  C:0253H         LINE#         110
+  C:0256H         LINE#         112
+  C:0259H         LINE#         113
+  C:025BH         LINE#         114
+  C:025EH         LINE#         115
+BL51 BANKED LINKER/LOCATER V6.22                                                      09/28/2022  11:02:30  PAGE 4
+
+
+  C:0261H         LINE#         116
+  C:0263H         LINE#         117
+  C:0265H         LINE#         118
+  C:0267H         LINE#         119
+  -------         ENDPROC       SYSINIT
+  -------         PROC          MAIN
+  -------         DO            
+  D:0002H         SYMBOL        msec
+  -------         ENDDO         
+  C:001EH         LINE#         122
+  C:001EH         LINE#         123
+  C:001EH         LINE#         126
+  C:0021H         LINE#         128
+  C:0028H         LINE#         129
+  C:002DH         LINE#         130
+  C:0032H         LINE#         131
+  C:0037H         LINE#         132
+  C:003CH         LINE#         133
+  C:0041H         LINE#         134
+  C:0046H         LINE#         135
+  C:004BH         LINE#         136
+  C:0052H         LINE#         138
+  C:0054H         LINE#         139
+  C:0057H         LINE#         142
+  C:005AH         LINE#         143
+  C:005AH         LINE#         144
+  C:0073H         LINE#         145
+  C:0095H         LINE#         146
+  C:00AEH         LINE#         147
+  C:00B5H         LINE#         148
+  C:00C0H         LINE#         150
+  -------         ENDPROC       MAIN
+  -------         ENDMOD        MAIN_DPY
+
+  -------         MODULE        ?C?UIDIV
+  C:01E0H         PUBLIC        ?C?UIDIV
+  -------         ENDMOD        ?C?UIDIV
+
+Program Size: data=21.1 xdata=0 code=639
+LINK/LOCATE RUN COMPLETE.  0 WARNING(S),  0 ERROR(S)

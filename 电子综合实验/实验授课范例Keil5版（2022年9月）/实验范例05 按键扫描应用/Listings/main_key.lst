@@ -1,0 +1,199 @@
+C51 COMPILER V9.56.0.0   MAIN_KEY                                                          09/28/2022 11:17:01 PAGE 1   
+
+
+C51 COMPILER V9.56.0.0, COMPILATION OF MODULE MAIN_KEY
+OBJECT MODULE PLACED IN .\Objects\main_key.obj
+COMPILER INVOKED BY: D:\MDK_v525\C51\BIN\C51.EXE main_key.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJECTEXTEND PRINT(.\Listings
+                    -\main_key.lst) TABS(2) OBJECT(.\Objects\main_key.obj)
+
+line level    source
+
+   1          /*
+   2            功能：按键扫描及按键加减数值显示。
+   3            1、按键消抖原理
+   4            2、按键抬起确认
+   5            编制：电子科技大学实验中心2022年6月
+   6          */
+   7          
+   8          
+   9          #include <reg52.h>
+  10          
+  11          //定义显示缓冲区（由定时中断程序自动扫描）
+  12          unsigned char DispBuf[8];
+  13          
+  14          //智能小车数码管显示电路管脚定义
+  15          sbit SS = P2^6;    //数码管段选信号
+  16          sbit CS = P2^7;    //数码管位选信号
+  17          //智能小车数码管按键电路管脚定义
+  18          sbit KEY1 = P3^4;   //定义按键1，'+'按键，对应核心板上K1
+  19          sbit KEY2 = P3^5;   //定义按键2，'-'按键，对应核心板上K2
+  20          code unsigned char Tab[] =
+  21            {//定义0123456789AbCdEF的数码管字型数据，其他显示字符需自行计算，如‘-’的字形数据为0x40
+  22              0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7D,0x07,
+  23              0x7F,0x6F,0x77,0x7C,0x39,0x5E,0x79,0x71
+  24            };
+  25            
+  26          
+  27          /*
+  28          函数：T1INTSVC()
+  29          功能：定时器T1的中断服务函数
+  30          */
+  31          void T1INTSVC() interrupt 3 //定时器1的中断号为：3
+  32          {
+  33   1        code unsigned char com[] = {0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01}; //显示位的端口控制字节
+  34   1        static unsigned char n = 0;           //n: 扫描显示位计数,0-7
+  35   1      
+  36   1      //================数码管定时扫描驱动显示=============== 
+  37   1        TR1 = 0;
+  38   1        TH1 = 0xFC;
+  39   1        TL1 = 0x66;           //可以将FC66换成0000，降低扫描速度，观察和理解动态扫描
+  40   1        TR1 = 1;
+  41   1        P0 = 0xFF;    //消隐
+  42   1        CS = 1;
+  43   1        CS = 0;
+  44   1        P0 = DispBuf[n];  //更新扫描显示数据
+  45   1        SS = 1;
+  46   1        SS = 0;
+  47   1        P0 = ~com[n]; //重新显示
+  48   1        CS = 1;
+  49   1        CS = 0;
+  50   1        n++;            //指向下一位扫描显示
+  51   1        n &= 0x07;
+  52   1      //====================================================
+  53   1      
+  54   1      }
+C51 COMPILER V9.56.0.0   MAIN_KEY                                                          09/28/2022 11:17:01 PAGE 2   
+
+  55          
+  56          
+  57          /*
+  58          函数：DispClear()
+  59          功能：清除数码管的所有显示
+  60          */
+  61          void DispClear()
+  62          {
+  63   1        unsigned char i;
+  64   1        for ( i=0; i<8; i++ )
+  65   1        {
+  66   2          DispBuf[i] = 0x00;  //i值代表数码管的位数，可以在后面的程序观察是左起还是右起，0x00可以关闭数码管显示
+  67   2        }
+  68   1      }
+  69          
+  70          /*
+  71          函数：Delay()
+  72          功能：延时
+  73          说明：
+  74            晶振频率为11.0592MHz
+  75            延时长度 = 1ms * t
+  76          */
+  77          void Delayms(unsigned int t)
+  78          {
+  79   1        unsigned int us_ct;
+  80   1        for (;t > 0;t --)   //执行代码消耗CPU时间
+  81   1          for (us_ct = 113;us_ct > 0;us_ct --); 
+  82   1      }
+  83          
+  84          /*
+  85          函数：KeyScan()
+  86          功能：键盘扫描
+  87          返回：扫描到的键值
+  88          */
+  89          unsigned char KeyScan()
+  90          {
+  91   1        unsigned char k = '\0';
+  92   1      
+  93   1        if ( KEY1 == 0 ) k = '+';
+  94   1        if ( KEY2 == 0 ) k = '-';
+  95   1      
+  96   1        return k;
+  97   1      }
+  98          
+  99          /*
+ 100          函数：SysInit()
+ 101          功能：系统初始化
+ 102          */
+ 103          void SysInit()
+ 104          {
+ 105   1      
+ 106   1        DispClear();  //初始为全灭
+ 107   1      
+ 108   1        TMOD = 0x11;  //设置定时器T0为16位定时器，定时器T1为16位定时器
+ 109   1        EA = 0;
+ 110   1        TH1 = 0xFC;   //设置定时器1的初值: 0xFC66，对应定时时间1ms
+ 111   1        TL1 = 0x66;
+ 112   1        ET1 = 1;    //使能定时器T1中断
+ 113   1        EA = 1;     //使能总中断
+ 114   1        TR1 = 1;    //启动定时器T1
+ 115   1      }
+ 116          
+C51 COMPILER V9.56.0.0   MAIN_KEY                                                          09/28/2022 11:17:01 PAGE 3   
+
+ 117          
+ 118          void main()
+ 119          {
+ 120   1      
+ 121   1        unsigned char k;      //定义键值变量
+ 122   1        unsigned char cnt = 18;   //定义计数值变量的初始值
+ 123   1      
+ 124   1        SysInit();          //系统初始化
+ 125   1      
+ 126   1        DispBuf[7] = Tab[1];      //在8位数码管上显示“12345678”字样
+ 127   1        DispBuf[6] = Tab[2];
+ 128   1        DispBuf[5] = Tab[3];
+ 129   1        DispBuf[4] = Tab[4];
+ 130   1        DispBuf[3] = Tab[5];
+ 131   1        DispBuf[2] = Tab[6];
+ 132   1        DispBuf[1] = Tab[7];
+ 133   1        DispBuf[0] = Tab[8];
+ 134   1        Delayms(2000);          //保留2s
+ 135   1        
+ 136   1      
+ 137   1        DispClear();        //清除显示（数码管上的显示内容全部熄灭
+ 138   1        DispBuf[1] = Tab[cnt / 10];
+ 139   1        DispBuf[0] = Tab[cnt % 10];
+ 140   1        while(1)
+ 141   1        {
+ 142   2          Delayms(20);        //扫描延时20ms，也做按键后延消抖
+ 143   2          k = KeyScan();      //扫描按键
+ 144   2      
+ 145   2          if ( k != '\0')     //首次检测到按键按下
+ 146   2          {
+ 147   3            Delayms(20);          //延时20ms，按键前沿消抖
+ 148   3            k = KeyScan();      //再次读取按键状态
+ 149   3            if ( k != '\0')     //确认按键按下后处理按键
+ 150   3            {
+ 151   4              if ( k == '+') 
+ 152   4              {
+ 153   5                if ( cnt < 31 ) cnt++;
+ 154   5              }
+ 155   4              if ( k == '-')
+ 156   4              {
+ 157   5                if ( cnt > 0 ) cnt--;
+ 158   5              }
+ 159   4              
+ 160   4              DispBuf[1] = Tab[cnt / 10];
+ 161   4              DispBuf[0] = Tab[cnt % 10];
+ 162   4      
+ 163   4              while( KeyScan() != '\0');    //等待松开按键
+ 164   4            }
+ 165   3          }
+ 166   2        }
+ 167   1      }
+ 168          //思考：等待按键抬起的处理方式带来什么优势？本程序的对应语句存在什么隐患？
+ 169          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    291    ----
+   CONSTANT SIZE    =     24    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      9    ----
+   IDATA SIZE       =   ----    ----
+C51 COMPILER V9.56.0.0   MAIN_KEY                                                          09/28/2022 11:17:01 PAGE 4   
+
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

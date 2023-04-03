@@ -1,0 +1,591 @@
+C51 COMPILER V9.54   MAINSOURCE                                                            11/23/2022 21:54:16 PAGE 1   
+
+
+C51 COMPILER V9.54, COMPILATION OF MODULE MAINSOURCE
+OBJECT MODULE PLACED IN .\Objects\mainsource.obj
+COMPILER INVOKED BY: D:\programfile\STM32mini\MDKA\keil\C51\BIN\C51.EXE mainsource.c OPTIMIZE(8,SPEED) BROWSE DEBUG OBJE
+                    -CTEXTEND PRINT(.\Listings\mainsource.lst) TABS(2) OBJECT(.\Objects\mainsource.obj)
+
+line level    source
+
+   1          #include <reg52.h>
+   2          #include "PCF8591.h"
+   3          //定义驱动引脚
+   4          sbit Echo = P3^2; //Echo
+   5          sbit Trig = P3^3; //Trig
+   6          
+   7          #define LED_seg P0      //8位数码管的段码和位码驱动通过P0端口锁存 
+   8          #define LED_dig P0
+   9          
+  10          //定义I/O接口
+  11          sbit PWM_IN1 = P1^4;  // 高电平1：左电机后退（反转）
+  12          sbit PWM_IN2 = P1^5;  // 高电平1：左电机前进（正转）
+  13          
+  14          sbit PWM_IN3 = P1^6;  // 高电平1：右电机前进（正转）  
+  15          sbit PWM_IN4 = P1^7;  // 高电平1：右电机后退（反转）
+  16          
+  17          sbit PWM_EN1 = P1^2;  // 高电平1：使能左电机 
+  18          sbit PWM_EN2 = P1^3;  // 高电平1：使能右电机
+  19          //定义PWM最大级数，也就是调节直流电机的速度等级
+  20          #define SPEED_MAX   20
+  21          //定义PWM级数，分为0～SPEED_MAX-1级
+  22          unsigned char Speed_L;    //左电机转速调节（调节PWM的一个周期SPEED_MAX*1ms时间内，左电机正转时间：Speed_L*1m
+             -s）
+  23          unsigned char Speed_R;    //右电机转速调节（调节PWM的一个周期SPEED_MAX*1ms时间内，右电机正转时间：Speed_R*1m
+             -s）
+  24          
+  25          
+  26          
+  27          //定义显示缓冲区（由定时中断程序自动扫描）
+  28          unsigned char DispBuf[8];
+  29          //================================================
+  30          
+  31          
+  32          //===================自定义变量======================
+  33          bit display_flag=0;  //测量距离显示标志，200ms显示一次
+  34          unsigned int Range_s[4]={0,0,0,0};//定义滑动平均值的数据缓存区
+  35          unsigned int target_instance=125; //定义小车定位距离初始值12.5cm=125mm
+  36          
+  37          //智能小车数码管按键电路管脚定义
+  38          sbit KEY1 = P3^4;   //定义按键1，'+'按键，对应核心板上K1
+  39          sbit KEY2 = P3^5;   //定义按键2，'-'按键，对应核心板上K2
+  40          
+  41          sbit led1=P1^0;   
+  42          sbit buzzer=P2^3; //启动前按键提示，启动后用于声光报警
+  43          
+  44          
+  45          unsigned char sec = 0;    //秒表计时器，精度0.1s
+  46          bit timer_start_flag = 0; //定义标志位,秒表启动标志
+  47          bit motor_flag=1;//定义电机正反转标志，1正，0反转
+  48          
+  49          bit Range_include_first=1;//0表示第一次进入，且秒表已经暂停
+  50          
+  51          bit buzzer_led_flag=0;//声光报警标志，1报警
+  52          
+C51 COMPILER V9.54   MAINSOURCE                                                            11/23/2022 21:54:16 PAGE 2   
+
+  53          unsigned char detector3_a=0;//连续三次检测前进计数
+  54          unsigned char detector3_b=0;//连续三次检测后退计数
+  55          
+  56          
+  57          
+  58          
+  59          //==============================================
+  60          //智能小车数码管显示电路管脚定义
+  61          sbit SS = P2^6;    //数码管段选信号
+  62          sbit CS = P2^7;    //数码管位选信号
+  63          
+  64          bit Counter_overflag = 0;   //T0定时器溢出标志
+  65          bit Echo_Over = 0;            //超声波测距完成标志，无论收到回波或没有收到，总要置位一次
+  66          unsigned int Range = 0;
+  67          unsigned long Echo_time = 0;    //T0定时器合并数值
+  68          
+  69          code unsigned char Tab[] =
+  70            {//定义0123456789AbCdEF的数码管字型数据，其他显示字符需自行计算，如‘-’的字形数据为0x40
+  71              0x3F,0x06,0x5B,0x4F,0x66,0x6D,0x7D,0x07,
+  72              0x7F,0x6F,0x77,0x7C,0x39,0x5E,0x79,0x71
+  73            };
+  74          //============================//
+  75          /*
+  76          函数：EX0INTSVC()
+  77          功能：外部中断0中断服务程序
+  78          用途：为避免定时中断干扰测距的准确性，采用外部中断触发后立即停止计时
+  79                外部中断0优先级高于定时中断，程序尽量短，避免过多干扰定时中断
+  80          */
+  81          void EX0INTSVC() interrupt 0
+  82          {
+  83   1        TR0 = 0;          //停止计时
+  84   1        Echo_time = TH0 * 256 + TL0;  //读取定时器0计数值
+  85   1        TH0 = 0;          //清除定时器0计数寄存器，为下次计数做准备
+  86   1        TL0 = 0;
+  87   1        Echo_Over = 1;    //表示本次超声波测距完成，可以启动下次的测量
+  88   1        EX0 = 0;          //关闭外部中断，否则会马上引起下一次中断
+  89   1      }
+  90          //============================//
+  91          /*
+  92          函数：T0INTSVC()
+  93          功能：定时器T0的中断服务函数
+  94          用途：若超过测距范围，长时间无法收到回波，
+  95                已经启动的T0中断会计数溢出，利用定时器溢出标志来判断
+  96          */
+  97          void T0INTSVC() interrupt 1      
+  98          {
+  99   1        TR0 = 0;        //停止计时
+ 100   1        Counter_overflag = 1;      //中断溢出标志，未收到回波
+ 101   1        Echo_Over = 1;  //表示本次超声波测距完成，可以启动下次的测量
+ 102   1        EX0 = 0;        //关闭外部中断
+ 103   1      }
+ 104          /*
+ 105          函数：T1INTSVC()
+ 106          功能：定时器T1的中断服务函数
+ 107          */
+ 108          
+ 109          void T1INTSVC() interrupt 3 //定时器1的中断号为：3
+ 110          {
+ 111   1        code unsigned char com[] = {0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01}; //显示位的端口控制字节
+ 112   1        static unsigned char n = 0;           //n: 扫描显示位计数,0-7
+ 113   1        
+ 114   1        static unsigned int counter_200ms=0;//200ms计数用于显示
+C51 COMPILER V9.54   MAINSOURCE                                                            11/23/2022 21:54:16 PAGE 3   
+
+ 115   1        static unsigned int counter_1ms = 0;  //1ms计数用于秒表
+ 116   1        static unsigned char t = 0;  //pwm调速计数变量
+ 117   1        static unsigned int counter_400ms=0;//用于秒表闪烁显示
+ 118   1        static unsigned int counter1_1ms = 0; //1ms计数用于声光报警
+ 119   1      //================数码管定时扫描驱动显示=================== 
+ 120   1        TR1 = 0;
+ 121   1        TH1 = 0xFC;
+ 122   1        TL1 = 0x66;           //可以将FC66换成0000，降低扫描速度，观察和理解动态扫描
+ 123   1        TR1 = 1;
+ 124   1        P0 = 0xFF;    //消隐
+ 125   1        CS = 1;
+ 126   1        CS = 0;
+ 127   1        P0 = DispBuf[n];  //更新扫描显示数据
+ 128   1        SS = 1;
+ 129   1        SS = 0;
+ 130   1        P0 = ~com[n]; //重新显示
+ 131   1        CS = 1;
+ 132   1        CS = 0;
+ 133   1        n++;            //指向下一位扫描显示
+ 134   1        n &= 0x07;
+ 135   1        
+ 136   1      //=============每200ms显示测量距离一次==================
+ 137   1        if(counter_200ms==199){
+ 138   2          counter_200ms=0;
+ 139   2          display_flag=1;
+ 140   2        }else{
+ 141   2          counter_200ms++;
+ 142   2        }
+ 143   1      //======================================================
+ 144   1      
+ 145   1      
+ 146   1      //==================秒表精度0.1s===================
+ 147   1        if(timer_start_flag)
+ 148   1        {
+ 149   2          counter_1ms ++; //1ms加1
+ 150   2          
+ 151   2          if(counter_1ms == 100)
+ 152   2          {
+ 153   3            counter_1ms = 0;      //0.1s到
+ 154   3            sec++;
+ 155   3            DispBuf[0] = Tab[sec % 10];     //查表取出显示数字对应的段码，存入显示缓冲器数组
+ 156   3            DispBuf[1] = Tab[sec / 10 % 10] | 0x80;   // "| 0x80"可以使该位带小数点显示
+ 157   3            DispBuf[2] = Tab[sec / 100];
+ 158   3          }
+ 159   2        }
+ 160   1      //=================================================
+ 161   1        
+ 162   1        //=======================pwm调速======================
+ 163   1        t++;
+ 164   1        if ( t >= SPEED_MAX ) 
+ 165   1          t = 0;        //PWM波的周期为：SPEED_MAX*1ms = 20ms
+ 166   1      
+ 167   1        if ( t < Speed_L )    //PWM波高电平时间：(Speed_L)*1ms
+ 168   1        {
+ 169   2          if(motor_flag){
+ 170   3            PWM_IN1 = 0;
+ 171   3            PWM_IN2 = 1;    //左电机的正转
+ 172   3          }else{
+ 173   3            PWM_IN2 = 0;
+ 174   3            PWM_IN1 = 1;    //左电机的反转
+ 175   3          }
+ 176   2        }
+C51 COMPILER V9.54   MAINSOURCE                                                            11/23/2022 21:54:16 PAGE 4   
+
+ 177   1        else          //PWM波低电平时间：（SPEED_MAX-Speed_L）*1ms
+ 178   1        {
+ 179   2          PWM_IN1 = 0;
+ 180   2          PWM_IN2 = 0;    //左电机的停转
+ 181   2        }
+ 182   1        
+ 183   1        if ( t < Speed_R )    //PWM波高电平时间：Speed_R*1ms
+ 184   1        {
+ 185   2          if(motor_flag){
+ 186   3            PWM_IN4 = 0;    //右电机的正转  
+ 187   3            PWM_IN3 = 1;
+ 188   3          }else{
+ 189   3            PWM_IN3 = 0;
+ 190   3            PWM_IN4 = 1;    //右电机的反转
+ 191   3          }     
+ 192   2        }
+ 193   1        else          //PWM波低电平时间：（SPEED_MAX-Speed_R）*1ms
+ 194   1        {
+ 195   2          PWM_IN3 = 0;
+ 196   2          PWM_IN4 = 0;    //右电机的停转  
+ 197   2        }
+ 198   1        //===============================================
+ 199   1        
+ 200   1        //========秒表停止后计时闪烁（亮0.1+暗0.3s）===============
+ 201   1          if(Range_include_first==0){
+ 202   2            if(counter_400ms==400){
+ 203   3              counter_400ms=0;
+ 204   3            }else{
+ 205   3              counter_400ms++;
+ 206   3            }
+ 207   2            
+ 208   2            if(counter_400ms<100){
+ 209   3              DispBuf[0] = Tab[sec % 10];     //查表取出显示数字对应的段码，存入显示缓冲器数组
+ 210   3              DispBuf[1] = Tab[sec / 10 % 10] | 0x80;   // "| 0x80"可以使该位带小数点显示
+ 211   3              DispBuf[2] = Tab[sec / 100];
+ 212   3            }else{
+ 213   3              DispBuf[0] =0x00;
+ 214   3              DispBuf[1] =0x00;
+ 215   3              DispBuf[2] =0x00; 
+ 216   3            }
+ 217   2          }
+ 218   1        //=========================================================
+ 219   1        
+ 220   1        //=============声光报警模块=======================
+ 221   1            if(buzzer_led_flag){
+ 222   2              counter1_1ms++;//报警计时++
+ 223   2              if(counter1_1ms==400)
+ 224   2                counter1_1ms=0;
+ 225   2              if(counter1_1ms<=100){
+ 226   3                buzzer=0;
+ 227   3                led1=0;
+ 228   3              }else{
+ 229   3                buzzer=1;
+ 230   3                led1=1;
+ 231   3              }
+ 232   2            }else if(Range_include_first==0){
+ 233   2              //直接else可能会导致按键提示音无效
+ 234   2              //判断进入过一次范围，说明已经启动了不用再用按键
+ 235   2              buzzer=1;
+ 236   2                led1=1;
+ 237   2            }
+ 238   1        //================================================
+C51 COMPILER V9.54   MAINSOURCE                                                            11/23/2022 21:54:16 PAGE 5   
+
+ 239   1      }
+ 240          
+ 241          
+ 242          /*
+ 243          函数：DispClear()
+ 244          功能：清除数码管的所有显示
+ 245          */
+ 246          void DispClear()
+ 247          {
+ 248   1        unsigned char i;
+ 249   1        for ( i=0; i<8; i++ )
+ 250   1        {
+ 251   2          DispBuf[i] = 0x00;  //i值代表数码管的位数，可以在后面的程序观察是左起还是右起，0x00可以关闭数码管显示
+ 252   2        }
+ 253   1      }
+ 254          
+ 255          /*
+ 256          函数：Delay()
+ 257          功能：延时
+ 258          说明：
+ 259            晶振频率为11.0592MHz
+ 260            延时长度 = 1ms * t
+ 261          */
+ 262          void Delay(unsigned int t)
+ 263          {
+ 264   1        unsigned int us_ct;
+ 265   1        for (;t > 0;t --)   //执行代码消耗CPU时间
+ 266   1          for (us_ct = 113;us_ct > 0;us_ct --); 
+ 267   1      }
+ 268          
+ 269          
+ 270          /*
+ 271          函数：SysInit()
+ 272          功能：系统初始化
+ 273          */
+ 274          void SysInit()
+ 275          {
+ 276   1      
+ 277   1        DispClear();  //初始化显示缓存
+ 278   1        TMOD = 0x11;  //设置定时器T0为16位定时器，定时器T1为16位定时器
+ 279   1        EA = 0;       //关闭总中断，待初始化结束后再打开
+ 280   1      //======定时计数器T0初始化，用于获取超声波作用时间，若定时溢出，则超出测距范围
+ 281   1        TH0 = 0;    
+ 282   1        TL0 = 0;
+ 283   1        ET0 = 1;
+ 284   1      //======定时计数器T1初始化，用于获取1ms定时中断=====
+ 285   1        TH1 = 0xFC;   //设置定时器1的初值: 0xFC66，对应定时时间1ms
+ 286   1        TL1 = 0x66;
+ 287   1        ET1 = 1;      //使能定时器T1中断
+ 288   1        TR1 = 1;      //启动定时器T1
+ 289   1      //======定时计数器T0和T1初始化完毕================= 
+ 290   1        EX0 = 0;      //关闭外部中断
+ 291   1        IT0 = 0;      //外部中断0采用电平触发模式，低电平出发
+ 292   1        EA = 1;       //使能总中断
+ 293   1        
+ 294   1        PWM_EN1 = 0;     
+ 295   1        PWM_EN2 = 0;    //电机无效
+ 296   1        PWM_IN1 = 0;
+ 297   1        PWM_IN2 = 0;    //左电机的停转
+ 298   1        PWM_IN3 = 0;
+ 299   1        PWM_IN4 = 0;    //右电机的停转
+ 300   1        
+C51 COMPILER V9.54   MAINSOURCE                                                            11/23/2022 21:54:16 PAGE 6   
+
+ 301   1        DispClear();
+ 302   1        
+ 303   1      }
+ 304          
+ 305          /*
+ 306          函数：StartModule()
+ 307          功能：启动模块，采用 IO 触发测距，给至少10us 的高电平信号;
+ 308          */
+ 309          void  StartModule()
+ 310          {
+ 311   1        unsigned char i;
+ 312   1        Trig = 1;                       //启动一次模块
+ 313   1        for(i = 0;i < 10;i ++);         //超声波启动延迟10us以上;
+ 314   1        Trig = 0;
+ 315   1      }
+ 316          /*
+ 317          函数：Range_Display()
+ 318          功能：超声波距离显示函数
+ 319          说明：若超出距离则显示“- - - -”
+ 320          */
+ 321           void Range_Display()
+ 322          {
+ 323   1        //超出测量范围或者障碍物太近反射角度太小导致无法收到回波，都显示“- - - -”
+ 324   1        if((Range >= 4000) || Counter_overflag == 1)
+ 325   1        {  
+ 326   2          Counter_overflag = 0;
+ 327   2          DispBuf[4] = 0x40;      
+ 328   2          DispBuf[5] = 0x40;
+ 329   2          DispBuf[6] = 0x40;        
+ 330   2          DispBuf[7] = 0x40;
+ 331   2        }
+ 332   1        //按照HC-SR04的指标，大致工作在2cm—450cm的范围内，与产品质量和反射面相关
+ 333   1        else    //显示数据单位：厘米
+ 334   1        {
+ 335   2          DispBuf[4] = Tab[Range % 10];     
+ 336   2          DispBuf[5] = Tab[Range / 10 % 10] + 0x80;
+ 337   2          DispBuf[6] = Tab[Range / 100 % 10];       
+ 338   2          DispBuf[7] = Tab[Range / 1000];
+ 339   2        }
+ 340   1      }
+ 341          /*
+ 342          函数：Timer_Count()
+ 343          功能：超声波高电平脉冲宽度计算函数
+ 344          备注：采用查询模式
+ 345          说明：超声波模块在等待回波的时候，经常被定时中断打断，导致回波到达时间测量不及时，干扰了超声波测量精度
+ 346          改进的办法是分别加入下面两条语句（暂时屏蔽，取消屏蔽可以用来对照）
+ 347            TR1 = 0;    //暂停定时器T1计数，相当于关闭定时中断T1
+ 348            TR1 = 1;    //重启定时器T1计数，相当于打开定时中断T1
+ 349          随之带来什么新的问题呢？分析产生的原因。
+ 350          */
+ 351          unsigned int  Timer_Count()   
+ 352          {
+ 353   1        
+ 354   1        unsigned long Range;
+ 355   1        TR0 = 1;      //开启计数
+ 356   1        EX0 = 1;      //开启外部中断
+ 357   1        while(!Echo_Over);  //等待回波，当Echo_Over为1，表明收到回波或超出测距范围
+ 358   1        
+ 359   1        Echo_Over = 0;      //清除Echo_Over，准备下一次测距
+ 360   1        //程序到这里就已经得到了超声波的响应计数值，结果存在变量Echo_time内，Echo_time * 1.1us得到响应时间
+ 361   1        //假设环境温度26.5摄氏度，根据Echo_time的值自行计算测距的长度（单位：毫米）并替换下面的定值表达式
+ 362   1        //注意：必须用定点运算，精度为毫米！
+C51 COMPILER V9.54   MAINSOURCE                                                            11/23/2022 21:54:16 PAGE 7   
+
+ 363   1        Range =Echo_time*11*174/10000;     //单位是毫米
+ 364   1        
+ 365   1        return (unsigned int)Range;
+ 366   1      }
+ 367          
+ 368          /*
+ 369          函数：KeyScan()
+ 370          功能：键盘扫描
+ 371          返回：扫描到的键值
+ 372          */
+ 373          unsigned char KeyScan()
+ 374          {
+ 375   1        unsigned char k = '\0';
+ 376   1      
+ 377   1        if ( KEY1 == 0 ) k = '+';
+ 378   1        if ( KEY2 == 0 ) k = '-';
+ 379   1      
+ 380   1        return k;
+ 381   1      }
+ 382          
+ 383          
+ 384          
+ 385          void main()
+ 386          {
+ 387   1        unsigned char k;      //定义键值变量
+ 388   1        unsigned char i;//缓存区滑动循环变量
+ 389   1        
+ 390   1        //========adc启动必须条件========
+ 391   1        unsigned char light;//定义AD测量值
+ 392   1        RST_DS = 0; //关时钟DS1302
+ 393   1        I2C_Init();
+ 394   1        //================
+ 395   1        
+ 396   1        //电机和定时器初始化
+ 397   1        SysInit();    
+ 398   1        //====开机显示初始定位距离==
+ 399   1          DispBuf[0] = Tab[target_instance % 10];     
+ 400   1          DispBuf[1] = Tab[target_instance / 10 % 10] + 0x80;
+ 401   1          DispBuf[2] = Tab[target_instance / 100 % 10];       
+ 402   1        //=========================
+ 403   1        while(1)
+ 404   1        {
+ 405   2          Echo = 1;           //IO口读入之前输出1
+ 406   2          TR1=0;
+ 407   2          ET1=0;
+ 408   2          StartModule();    //启动模块
+ 409   2          while(!Echo);
+ 410   2          ET1=1;
+ 411   2          TR1=1;
+ 412   2          
+ 413   2          //===================滑动均值====================
+ 414   2          for(i=0;i<3;i=i+1){ //滑动
+ 415   3            Range_s[i+1]=Range_s[i];
+ 416   3          }
+ 417   2          Range_s[0] = Timer_Count();   //超声波高电平脉冲宽度计算函数
+ 418   2          
+ 419   2          if(Range_s[0]&&Range_s[1]&&Range_s[2]&&Range_s[3]){//都不为0说明进行了三次有效测量
+ 420   3            Range=(Range_s[0]+Range_s[1]+Range_s[2]+Range_s[3]+2)/4;//计算滑动均值
+ 421   3          }else{
+ 422   3            Range=Range_s[0];//否则采用最新一次测量结果;
+ 423   3          }
+ 424   2          //===================================================
+C51 COMPILER V9.54   MAINSOURCE                                                            11/23/2022 21:54:16 PAGE 8   
+
+ 425   2          
+ 426   2          
+ 427   2          
+ 428   2          //距离有关处
+ 429   2          
+ 430   2          //========根据距离调节速度3档(需上车调试)=========
+ 431   2            if(Range>500){//50cm
+ 432   3              //较远高速行驶，调节两者以保持直线
+ 433   3              Speed_L=16;
+ 434   3              Speed_R=16;
+ 435   3            }else if(Range>200){//20cm
+ 436   3              Speed_L=10;
+ 437   3              Speed_R=10;
+ 438   3            }else if(Range>150){//15cm
+ 439   3              Speed_L=4;  //低速模式最好与下方一致
+ 440   3              Speed_R=4;
+ 441   3            }
+ 442   2          //================================================
+ 443   2            
+ 444   2          //=============进入定位距离====================
+ 445   2          if(Range<=target_instance+5&&Range>=target_instance-5){
+ 446   3            if(Range_include_first){//是否第一次进入
+ 447   4              timer_start_flag=0;//计时关闭
+ 448   4              Range_include_first=0;//闪烁显示标志
+ 449   4            }
+ 450   3              Speed_L=0;//小车停止
+ 451   3              Speed_R=0;
+ 452   3            
+ 453   3              detector3_a=0;//检测计数清零，保证检测三次的连续性
+ 454   3              detector3_b=0;
+ 455   3          }
+ 456   2          if(Range_include_first==0&&(Range>target_instance+5)){
+ 457   3              detector3_a++; //次数递增
+ 458   3              detector3_b=0;//清零保证连续性
+ 459   3            if(detector3_a==3){//连续三次正转需求则正转
+ 460   4              motor_flag=1;//电机正转
+ 461   4              Speed_L=4;   //低速行驶
+ 462   4              Speed_R=4;
+ 463   4              detector3_a=0;
+ 464   4            }
+ 465   3            
+ 466   3          }
+ 467   2          if(Range_include_first==0&&(Range<target_instance-5)){
+ 468   3              detector3_b++;
+ 469   3              detector3_a=0;
+ 470   3            if(detector3_b==3){//连续三次反转需求则反转
+ 471   4              buzzer_led_flag=1;//报警
+ 472   4              motor_flag=0;//电机反转
+ 473   4              Speed_L=4;   //低速行驶
+ 474   4              Speed_R=4;
+ 475   4              detector3_b=0;
+ 476   4            }
+ 477   3            
+ 478   3          }else{
+ 479   3            buzzer_led_flag=0;
+ 480   3          }
+ 481   2          //========================================================
+ 482   2          
+ 483   2          Delay(10);//10ms延时
+ 484   2          
+ 485   2          //=========超声波距离显示==========================
+ 486   2          if(display_flag){//
+C51 COMPILER V9.54   MAINSOURCE                                                            11/23/2022 21:54:16 PAGE 9   
+
+ 487   3            Range_Display();
+ 488   3            display_flag=0;
+ 489   3          }
+ 490   2          //==============================
+ 491   2          
+ 492   2          
+ 493   2          //==============定位距离调节==================
+ 494   2          //Delay(20);//按键后延消抖，前面超声波有延时可以不用
+ 495   2          k = KeyScan();      //扫描按键
+ 496   2          if ( k != '\0')     //首次检测到按键按下
+ 497   2          {
+ 498   3            Delay(20);          //延时20ms，按键前沿消抖
+ 499   3            k = KeyScan();      //再次读取按键状态
+ 500   3            if ( k != '\0')     //确认按键按下后处理按键
+ 501   3            {
+ 502   4              if ( k == '+') 
+ 503   4              {
+ 504   5                buzzer=0;//按键提示音
+ 505   5                Delay(100);
+ 506   5                buzzer=1;
+ 507   5                
+ 508   5                if ( target_instance < 150 ) 
+ 509   5                  target_instance=target_instance+5;
+ 510   5              }
+ 511   4              if ( k == '-')
+ 512   4              {
+ 513   5                buzzer=0;//按键提示音
+ 514   5                Delay(100);
+ 515   5                buzzer=1;
+ 516   5                
+ 517   5                if ( target_instance > 100 )
+ 518   5                  target_instance=target_instance-5;
+ 519   5                
+ 520   5              }
+ 521   4              
+ 522   4              DispBuf[0] = Tab[target_instance % 10];     
+ 523   4              DispBuf[1] = Tab[target_instance / 10 % 10] + 0x80;
+ 524   4              DispBuf[2] = Tab[target_instance / 100 % 10]; 
+ 525   4      
+ 526   4              while( KeyScan() != '\0');    //等待松开按键
+ 527   4            }
+ 528   3          }
+ 529   2          //==============================================
+ 530   2          
+ 531   2          //=============adc采集光敏数据================
+ 532   2            PCF8591_SendByte(AddWr,0);
+ 533   2            light = PCF8591_RcvByte(AddWr);     
+ 534   2            Pcf8591_DaConversion(AddWr,0, light);//将ad输入结果作为da输出     
+ 535   2          //======遮光启动==================
+ 536   2            if(light>130){
+ 537   3            timer_start_flag=1;//计时启动
+ 538   3            PWM_EN1 = 1;      //电机有效  
+ 539   3            PWM_EN2 = 1;      
+ 540   3          }
+ 541   2          //=========================================
+ 542   2          
+ 543   2          
+ 544   2        }
+ 545   1      
+ 546   1      }
+ 547          
+
+C51 COMPILER V9.54   MAINSOURCE                                                            11/23/2022 21:54:16 PAGE 10  
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1406    ----
+   CONSTANT SIZE    =     24    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     39       5
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      7    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

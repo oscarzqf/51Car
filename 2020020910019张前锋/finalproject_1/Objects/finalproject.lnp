@@ -1,0 +1,4 @@
+".\Objects\mainsource.obj",
+".\Objects\PCF8591.obj" 
+TO ".\Objects\finalproject" 
+PRINT(".\Listings\finalproject.m51") RAMSIZE(256) 

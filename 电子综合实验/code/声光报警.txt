@@ -1,0 +1,22 @@
+管脚约束
+sbit buzzer=P2^3;//声光报警
+sbit led1=P1^0;
+
+static unsigned int counter1_1ms = 0; //在中断中定义变量
+//=============以下程序可用于声光报警=================
+if(alarm==1){
+	counter1_1ms++;//报警计时++
+	if(counter1_1ms==400)
+		counter1_1ms=0;
+	if(counter1_1ms<=100){
+	     buzzer=0;  //响、亮0.1s
+	     led1=0;
+	}else{
+		buzzer=1; //熄、静0.3s
+		led1=1;
+	}
+}
+else{
+led1=1;
+buzzer=1;
+}
